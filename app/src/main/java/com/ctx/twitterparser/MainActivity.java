@@ -17,7 +17,16 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.PriorityQueue;
+import java.util.Set;
+import java.util.TreeMap;
 import twitter4j.HashtagEntity;
 import twitter4j.Status;
 import twitter4j.Twitter;
@@ -59,9 +68,12 @@ public class MainActivity extends AppCompatActivity
   // Internet Connection detector
   private ConnectionDetector cd;
 
+  private Map<String,Integer> countMap;
+
   // Alert Dialog Manager
   AlertDialogManager alert = new AlertDialogManager();
 
+  private ProgressDialog progressDialog;
   private static Twitter twitter;
   private static RequestToken requestToken;
   private static final String WORD = "cleartax";
@@ -72,7 +84,8 @@ public class MainActivity extends AppCompatActivity
     setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
 
     cd = new ConnectionDetector(getApplicationContext());
-
+    progressDialog = new ProgressDialog(this);
+    progressDialog.setMessage("Loading ...");
     resetTwitter();
 
     // Check if Internet present
@@ -169,6 +182,7 @@ public class MainActivity extends AppCompatActivity
 
     btnGetTweets.setOnClickListener(new View.OnClickListener() {
       @Override public void onClick(View v) {
+        progressDialog.show();
        new GetNewTweets(twitter,WORD,MainActivity.this).execute();
       }
     });
@@ -230,6 +244,7 @@ public class MainActivity extends AppCompatActivity
 
     btnLoginTwitter.setVisibility(View.VISIBLE);
 
+    progressDialog.show();
     new LogoutFromTwitter(twitter,this,this).execute();
   }
 
@@ -277,6 +292,7 @@ public class MainActivity extends AppCompatActivity
   }
 
   @Override public void postVerification(AccessToken accessToken) {
+    progressDialog.hide();
     Editor e = mSharedPreferences.edit();
 
     // After getting access token, access token secret
@@ -292,6 +308,8 @@ public class MainActivity extends AppCompatActivity
     // Getting user details from twitter
     // For now i am getting his name only
     long userID = accessToken.getUserId();
+
+    progressDialog.show();
     new GetUserDetails(twitter,userID,this).execute();
     postVerfication();
   }
@@ -309,6 +327,7 @@ public class MainActivity extends AppCompatActivity
   }
 
   @Override public void onFetchUserDetails(User user) {
+    progressDialog.hide();
     if(user != null) {
       String username = user.getName();
       lblUserName.setText(Html.fromHtml("<b>Welcome " + username + "</b>"));
@@ -316,11 +335,13 @@ public class MainActivity extends AppCompatActivity
   }
 
   @Override public void postLogout() {
+    progressDialog.hide();
     resetTwitter();
   }
 
   @Override public void onGetNewTweetsFinished(List<Status> tweets) {
-    int count = 0;
+    progressDialog.hide();
+    List<Status> filteredTweets = new ArrayList<>();
     for(Status status : tweets){
       HashtagEntity[] hashtagEntities = status.getHashtagEntities();
       UserMentionEntity[] userMentionEntities = status.getUserMentionEntities();
@@ -338,9 +359,59 @@ public class MainActivity extends AppCompatActivity
         }
       }
       if(include) {
-        count = count + 1;
+        filteredTweets.add(status);
       }
     }
-    Toast.makeText(this,"Total tweets matching: "+count,Toast.LENGTH_LONG).show();
+    Toast.makeText(this,"Total tweets matching: "+filteredTweets.size(),Toast.LENGTH_SHORT).show();
+    findTopThreeWords(filteredTweets);
+  }
+
+  private void findTopThreeWords(List<Status> filteredTweets){
+    int SIZE = 3;
+    countMap = new HashMap<>();
+    for(Status status : filteredTweets){
+      String[] wordsFromSentence = getWordsFromSentence(status.getText());
+      for(String word : wordsFromSentence){
+        if(countMap.containsKey(word)){
+          countMap.put(word,countMap.get(word)+1);
+        }else{
+          countMap.put(word,Integer.valueOf(1));
+        }
+      }
+    }
+
+    Map<String,Integer> sortedMap = new TreeMap<>(new ValueComparator());
+    sortedMap.putAll(countMap);
+
+    Set<String> strings = sortedMap.keySet();
+    StringBuilder resultBuilder = new StringBuilder();
+    Iterator<String> iterator = strings.iterator();
+    int i = 0;
+    while(iterator.hasNext() && i < SIZE){
+      String word = iterator.next();
+      resultBuilder.append("\n"+word + " : "+countMap.get(word));
+      i++;
+    }
+    Toast.makeText(this,"Top count words in search query "+resultBuilder.toString(),Toast.LENGTH_LONG).show();
+  }
+
+  private String[] getWordsFromSentence(String s){
+    String[] words = s.split("\\s+");
+    for (int i = 0; i < words.length; i++) {
+      words[i] = words[i].replaceAll("[^\\w]", "").toLowerCase();
+    }
+    return words;
+  }
+
+  class ValueComparator implements Comparator<String>{
+
+    @Override
+    public int compare(String s1, String s2) {
+      if(countMap.get(s1) >= countMap.get(s2)){
+        return -1;
+      }else{
+        return 1;
+      }
+    }
   }
 }
